@@ -1,0 +1,44 @@
+# Local test topology. Mirrors the Railway service graph:
+#   qdrant    -> Qdrant vector store (own volume, private, IPv6 dual-stack bind)
+#   mempalace -> MemPalace remote HTTP MCP server (wrapper image), data volume, public
+name: mempalace-railway-test
+
+networks:
+  default:
+    name: mempalace-railway-test
+
+services:
+  qdrant:
+    image: qdrant/qdrant:v1.19.1@sha256:12364fe851b9f17356fc88189fc06d1b521262e04659ec7345975b00c9246a10
+    restart: unless-stopped
+    # Bind to :: so the service is reachable over Railway's IPv6 private network. On Linux this is dual-stack
+    # (IPv4-mapped), so the IPv4 Docker network reaches it locally too.
+    environment:
+      QDRANT__SERVICE__HOST: '::'
+    volumes:
+      - qdrant:/qdrant/storage
+
+  mempalace:
+    build:
+      context: .
+      dockerfile: images/mempalace/Dockerfile
+      args:
+        WRAPPER_VERSION: ${WRAPPER_VERSION:-0.0.0-local}
+        VCS_REF: ${VCS_REF:-local}
+    image: ${MEMPALACE_RAILWAY_IMAGE:-mempalace-railway:local}
+    restart: unless-stopped
+    depends_on:
+      - qdrant
+    # The bearer token is a local-test-only value here; on Railway it is a generated secret.
+    environment:
+      MEMPALACE_MCP_HTTP_TOKEN: ${MEMPALACE_TEST_TOKEN:-local-test-only-bearer-token-please-change}
+      MEMPALACE_QDRANT_URL: http://qdrant:6333
+      MEMPALACE_MCP_IDLE_HOURS: '0'
+    ports:
+      - '127.0.0.1:${MEMPALACE_TEST_PORT:-18765}:8765'
+    volumes:
+      - data:/data
+
+volumes:
+  qdrant:
+  data:
